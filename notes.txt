@@ -1,0 +1,267 @@
+Author: Adam Maxwell @catalyst256
+Blog: http://itgeekchronicles.co.uk
+GitHub: https://github.com/catalyst256
+
+# Notes for the Scapy Workshop @ BSides London 2014
+
+Writing packets:
+
+Packets -  Vanilla Packet
+
+>>> a = Ether()
+>>> b = IP()
+>>> c = TCP()
+
+>>> a.show()
+>>> b.show()
+>>> c.show()
+
+Packets -  Tweak it a bit
+
+>>> b.dst = '127.0.0.1'
+>>> c.dport = 80
+
+.show2() - includes checksums
+
+Packets - Humble ICMP Packet
+
+>>> i = IP(dst='127.0.0.1')/ICMP()/"HelloWorld"
+>>> i
+<IP  frag=0 proto=icmp dst=127.0.0.1 |<ICMP  |<Raw  load='HelloWorld' |>>>
+>>> ls(ICMP)
+type       : ByteEnumField        = (8)
+code       : MultiEnumField       = (0)
+chksum     : XShortField          = (None)
+id         : ConditionalField     = (0)
+seq        : ConditionalField     = (0)
+ts_ori     : ConditionalField     = (34907912)
+ts_rx      : ConditionalField     = (34907912)
+ts_tx      : ConditionalField     = (34907912)
+gw         : ConditionalField     = ('0.0.0.0')
+ptr        : ConditionalField     = (0)
+reserved   : ConditionalField     = (0)
+addr_mask  : ConditionalField     = ('0.0.0.0')
+unused     : ConditionalField     = (0)
+
+>>> i.show()
+###[ IP ]###
+  version= 4
+  ihl= None
+  tos= 0x0
+  len= None
+  id= 1
+  flags=
+  frag= 0
+  ttl= 64
+  proto= icmp
+  chksum= None
+  src= 127.0.0.1
+  dst= 127.0.0.1
+  \options\
+###[ ICMP ]###
+     type= echo-request
+     code= 0
+     chksum= None
+     id= 0x0
+     seq= 0x0
+###[ Raw ]###
+        load= 'HelloWorld'
+
+>>> sendp(i)
+.
+Sent 1 packets.
+>>>
+
+>>> i[IP].src = '10.1.99.28'
+>>> i[IP].dst = '10.1.99.1'
+
+>>> x = sr1(i)
+
+>>> x.show()
+###[ IP ]###
+  version= 4L
+  ihl= 5L
+  tos= 0x0
+  len= 38
+  id= 22514
+  flags=
+  frag= 0L
+  ttl= 64
+  proto= icmp
+  chksum= 0x48c6
+  src= 10.1.99.1
+  dst= 10.1.99.28
+  \options\
+###[ ICMP ]###
+     type= echo-reply
+     code= 0
+     chksum= 0x0
+     id= 0x0
+     seq= 0x0
+###[ Raw ]###
+        load= 'HelloWorld'
+
+>>> x[ICMP].show()
+###[ ICMP ]###
+  type= echo-reply
+  code= 0
+  chksum= 0x0
+  id= 0x0
+  seq= 0x0
+###[ Raw ]###
+     load= 'HelloWorld'
+>>>
+
+Packets - DNS Packet
+
+>>> p = sr1(IP(dst="8.8.8.8")/UDP()/DNS(rd=1,qd=DNSQR(qname="www.citrix.com")))
+
+sr1 - This is the send & receives function that only returns the first answered packet (IP(dst=”10.1.99.2”) - Again we are using an IP packet and the destination IP is my router (which is also my DNS provider)
+/UDP() - Well as you may or may not know, DNS is a UDP packet (port 53) so we need to specify that in our packet.
+/DNS - This is telling Scapy that we want to create a DNS packet.
+rd=1 - Is telling Scapy that recursion is desired
+qd=DNSQR(qname=”www.citrix.com”) 
+
+
+Packets - Port Scanner
+
+>>> p=sr(IP(dst="10.1.99.1")/TCP(dport=[23,80,53,443]))
+>>> p=sr(IP(dst="10.1.99.1")/TCP(dport=80))
+
+Packets - Traceroute
+
+>>> traceroute (["www.google.com"], maxttl=20)
+
+Packets - The 3 Way
+
+IPTables - To Supress the resets from the Kernel
+
+iptables -A OUTPUT -p tcp --tcp-flags RST RST -s [source IP] -j DROP
+
+ip=IP(src="10.1.99.28", dst="10.1.99.1")
+TCP_SYN=TCP(sport=1500, dport=80, flags="S", seq=100)
+TCP_SYNACK=sr1(ip/TCP_SYN)
+
+my_ack = TCP_SYNACK.seq + 1
+TCP_ACK=TCP(sport=1500, dport=80, flags="A", seq=101, ack=my_ack)
+send(ip/TCP_ACK)
+
+my_payload="GET / HTTP/1.0\n\n"
+TCP_PUSH=TCP(sport=1500, dport=80, flags="PA", seq=102, ack=my_ack)
+send(ip/TCP_PUSH/my_payload)
+
+in Python - Use scripts/3way.py
+
+#!/usr/bin/env python
+from scapy.all import *
+# Set the GET request
+get='GET / HTTP/1.0\n\n'
+# Set your target
+ip=IP(dst="www.google.com")
+# Create a random source port (not needed but nice to have)
+port=RandNum(1024,65535)
+# Create SYN packet
+SYN=ip/TCP(sport=port, dport=80, flags="S", seq=42)
+# Send SYN and receive SYN,ACK
+SYNACK=sr1(SYN)
+# Create ACK with GET request
+ACK=ip/TCP(sport=SYNACK.dport, dport=80, flags="A", seq=SYNACK.ack, ack=SYNACK.seq + 1) / get
+# SEND our ACK-GET request
+reply,error=sr(ACK)
+# Print the reply
+print reply.show()
+
+Packets - The 3 R's
+
+Reading
+
+Doesnt like ng-pcap format
+
+>>> pkts = rdpcap('pcap/evidence02.pcap')
+>>> pkts
+<evidence02.pcap: TCP:490 UDP:52 ICMP:0 Other:30>
+
+>>> pkts.summary()
+>>> pkts.nsummary()
+
+>>> pkts[48]
+
+Pull out DNS packets
+
+>>> x = []
+>>> for p in pkts:
+>>>		if p.haslayer(UDP) and p.haslayer(DNS):
+>>>			x.append(p)
+>>>
+
+>>> x.nsummary()
+
+wRiting
+
+>>> wrpcap('pcap/test.pcap', x)
+>>> wireshark(x)
+
+
+>>> wrpcap('pcap/replay1.pcap',x[0])
+>>> wireshark(x[0])
+
+Replaying
+
+>>> pkts = rdpcap('pcap/replay1.pcap')
+>>> pkts
+
+Delete IP Checksum, Change Source IP & MAC, Change Dst IP & MAC
+>>> del pkts[0][Ether].dst
+>>> del pkts[0][Ether].src
+>>> pkts[0][IP].src = '10.1.99.28'
+>>> pkts[0][IP].dst = '8.8.8.8'
+>>> del pkts[0][IP].chksum
+>>> del pkts[0][UDP].chksum
+
+>>> x = srp1(pkts[0])
+>>> x.summary()
+'Ether / IP / UDP / DNS Ans "smtp.cs.com." '
+
+>>> srploop(pkts[0])
+
+>>> wrpcap('pcap/replay2.pcap', pkts[0])
+
+Python – Importing Scapy
+
+Quick - 
+from scapy.all import *
+
+Turn off "warnings" -
+import logging
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
+
+Turn off verbose in Scapy cmd line -
+>>> conf.verb = 0 (default is 2)
+
+Simple Packet Sniffer
+
+Sniff all the packets
+
+#!/usr/bin/env python
+
+import sys
+from scapy.all import *
+iface = sys.argv[1]
+pkts = sniff(iface=iface, prn=lambda x: x.summary())
+
+Sniff some of the packets
+
+#!/usr/bin/env python
+
+import sys
+from scapy.all import *
+iface = sys.argv[1]
+pkts = sniff(iface=iface, filter=sys.argv[2], prn=lambda x: x.summary())
+
+BPF (Berkeley Packet Filter)
+sudo ./simplesniffer.py en1 'tcp port 80'
+
+
+
+
+
