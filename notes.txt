@@ -261,6 +261,22 @@ pkts = sniff(iface=iface, filter=sys.argv[2], prn=lambda x: x.summary())
 BPF (Berkeley Packet Filter)
 sudo ./simplesniffer.py en1 'tcp port 80'
 
+Python – Parse a pcap file (HTTP)
+
+parse.py
+
+Python - Wifi Fun - De Auth
+
+scapy-deauth.py
+
+Python - Wifi Fun - Sniff Beacons
+
+scapy-wifibeacons.py
+
+
+
+
+
 
 
 
